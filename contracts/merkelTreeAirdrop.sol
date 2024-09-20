@@ -9,66 +9,79 @@ import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 
 contract merkelTreeAirdrop {
-    event TransferSuccessful(address indexed from, address indexed _to, uint256 indexed amount);
+    error zeroAddressDetected();
+    error HasClaimedRewardsAlready();
+    error UnAuthorizedFunctionCall();
+    error InvalidClaim();
+    error ZeroValueDetected();
+    error UnclaimedTokenStillMuch();
+    error NftNotFound();
+
+
+    event AirdropClaimed(address indexed _user, uint256 indexed _amount);
+    event WithdrawalSuccessful(address indexed _owner, uint256 indexed _amount);
+    event TransferSuccessful(address indexed _owner, address indexed _user, uint256 indexed _amount);
 
     address owner;
-    IERC20 public token;
-    IERC721 public bayc;
+    address public token;
+    address public nftAddress;
     bytes32 public merkleRoot;
     mapping(address => bool) public claimed;
     mapping(address => uint256) balances; 
 
-    constructor( address _token, address _bayc, bytes32 _merkleRoot) {
-        token = IERC20(_token);
-        bayc = IERC721(_bayc);
+    constructor( address _token, address _nftAddress, bytes32 _merkleRoot) {
+        token = _token;
+        nftAddress = _nftAddress;
         merkleRoot = _merkleRoot;
         owner = msg.sender;
+        
     }
 
     function sanityCheck(address _user) private pure {
         require(_user == address(0), "Zero address detected");
-        // if(_user == address(0)){
-        //     revert ZeroAddressDetected();
-        // }
+        if(_user == address(0)){
+            revert zeroAddressDetected();
+        }
     }
 
-    // function _hasClaimedAirdrop() private view returns(bool) {
-    //     sanityCheck(msg.sender);
-    //     return claimed[msg.sender];
-    // }
+    function _hasClaimedAirdrop() private view returns(bool) {
+        sanityCheck(msg.sender);
+        return claimed[msg.sender];
+    }
 
-    // function transferFunds(address _to, uint256 _amount) public { 
-    //     sanityCheck(msg.sender);
-    //     require(_to != address(0), "can't send to"); 
-    //     require(balances[msg.sender] >= _amount, "Insufficient funds!"); 
+    function getNFTBalance(address _user) view external returns(uint){
+        return IERC721(nftAddress).balanceOf(_user);
+    }
 
-    //     balances[msg.sender] -= _amount; 
+    function transferToken(address _to, uint256 _amount) public { 
+        sanityCheck(msg.sender);
+        require(_to != address(0), "can't send to"); 
+        require(balances[msg.sender] >= _amount, "Insufficient funds!"); 
 
-    //     token.transfer(_to, _amount); 
+        balances[msg.sender] -= _amount; 
+
+        IERC20(token).transfer(_to, _amount); 
         
-    //     emit TransferSuccessful(msg.sender, _to, _amount); 
-    // }
+        emit TransferSuccessful(msg.sender, _to, _amount); 
+    }
 
     
 
     function claimAirdrop(uint _amount, bytes32[] calldata _merkelProof) external {
         sanityCheck(msg.sender);
-        // if(!bayc.balanceOf(msg.sender)) {
-        //     revert YouMustOwnABAYCnft();
-        // }
-         require(!claimed[msg.sender], "Airdrop already claimed");
-        require(bayc.balanceOf(msg.sender) > 0, "Must own a BAYC NFT to claim");
-        // if(_hasClaimedAirdrop()){
-        //     revert (HasClaimedRewardsAlready);
-        // }
+        if(IERC721(nftAddress).balanceOf(msg.sender) < 1) {
+            revert NftNotFound();
+        }
+        if(_hasClaimedAirdrop()){
+            revert HasClaimedRewardsAlready();
+        }
 
         bytes32 leaf = keccak256(abi.encodePacked(msg.sender, _amount));
-        require(
-            MerkleProof.verify(_merkelProof, merkleRoot, leaf),
-            "Invalid Merkle proof."
-        );
+        if (!MerkleProof.verify(_merkelProof, merkleRoot, leaf)){
+            revert InvalidClaim();
+        }
 
         claimed[msg.sender] = true;
-        require(token.transfer(msg.sender, _amount), "Transfer failed.");
+        require(IERC20(token).transfer(msg.sender, _amount), "Transfer failed.");
     }
 }
